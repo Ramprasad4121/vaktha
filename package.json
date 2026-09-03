@@ -4,7 +4,8 @@
   "description": "Vaktha — voice dictation MCP for OpenCode. Record mic, transcribe speech to text.",
   "type": "module",
   "bin": {
-    "vaktha-mcp": "dist/index.js"
+    "vaktha-mcp": "dist/index.js",
+    "vaktha": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -15,9 +16,11 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "busboy": "^1.6.0",
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@types/busboy": "^1.5.4",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"

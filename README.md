@@ -1,8 +1,11 @@
-# Vaktha — voice dictation MCP for OpenCode
+# Vaktha — voice dictation for OpenCode
 
-> *Vaktha* (वक्था, Sanskrit: "speech") — stop typing, start speaking. Dictate prompts into OpenCode via your microphone.
+> *Vaktha* (वक्था, Sanskrit: "speech") — stop typing, start speaking.
 
-Vaktha is a local [Model Context Protocol](https://modelcontextprotocol.io) server. Once added to your OpenCode config, the agent gains ears: say **"dictate"** / **"listen"** and it records your mic, transcribes the speech, and acts on it.
+Vaktha gives OpenCode ears two ways:
+
+1. **Talk in the TUI (recommended):** press `Ctrl+R`, speak, press again — the transcript lands in your prompt box. No typing, no round-trip through the agent.
+2. **Agent dictation (MCP):** say *"dictate"* and the agent records + transcribes via MCP tools.
 
 ## How it works
 
@@ -13,7 +16,54 @@ you: "dictate"  →  agent calls vaktha_listen  →  ffmpeg records mic (N sec)
 
 No audio ever leaves your machine unless you choose the OpenAI backend.
 
-## Tools (4, kept small on purpose)
+## Talk in the TUI — Ctrl+R (the mic button equivalent)
+
+OpenCode has no clickable mic button, so Vaktha wires up the next best thing:
+a **push-to-talk keybind with a live indicator** in the prompt bar
+(`ctrl+r voice input` → `● listening` → `transcribing`).
+
+It uses the community [`opencode-stt`](https://github.com/cgarrot/opencode-stt)
+TUI plugin for recording + prompt insertion, with Vaktha's local
+`vaktha serve` as its transcription engine (your installed `mlx-whisper`,
+nothing leaves the machine).
+
+Setup (already done on this machine — for reference / fresh installs):
+
+```bash
+git clone https://github.com/cgarrot/opencode-stt.git ~/opencode-stt
+cd ~/opencode-stt && bun install --frozen-lockfile && bun run ci
+cp <vaktha>/examples/stt.config.local.json ~/opencode-stt/config.local.json
+# edit capture.input to your mic (see vaktha status / ffmpeg device list)
+```
+
+`~/.config/opencode/tui.json`:
+
+```json
+{
+  "plugin": [
+    ["/Users/you/opencode-stt/voxtral-stt.tsx",
+     {"configPath": "/Users/you/opencode-stt/config.local.json",
+      "keybinds": {"record": "ctrl+r"}}]
+  ],
+  "keybinds": {"session_rename": "none"}
+}
+```
+
+Start the transcription server (auto-starts on login via LaunchAgent
+`com.vaktha.serve` once installed):
+
+```bash
+node dist/cli.js serve --port 8765
+```
+
+Then restart OpenCode and: `Ctrl+R` = start/stop recording,
+`Enter` while recording = transcribe + send immediately,
+`Esc` = cancel. If the wrong mic records, change `capture.input`
+(`":0"`, `":1"`, …) in `~/opencode-stt/config.local.json`.
+
+## MCP server (agent dictation)
+
+The `vaktha` MCP exposes 4 tools (kept small on purpose):
 
 | Tool | What it does |
 |---|---|
@@ -94,6 +144,18 @@ macOS mic permission: Terminal / OpenCode needs **Microphone** access (System Se
 ## Privacy
 
 Recordings are short-lived WAVs in the temp dir and deleted after transcription. With local backends (`mlx-whisper`, `whisper`, whisper.cpp) nothing leaves your machine. The `openai` backend sends audio to OpenAI's transcription API.
+
+## CLI
+
+```bash
+node dist/cli.js status                 # readiness check
+node dist/cli.js listen --seconds 20    # record mic + print transcript (--copy for clipboard)
+node dist/cli.js transcribe /tmp/note.m4a
+node dist/cli.js speak "done"           # read aloud
+node dist/cli.js serve --port 8765      # localhost STT server (TUI plugin engine)
+```
+
+After `npm run build` you can link it globally with `npm link` and just run `vaktha …`.
 
 ## Dev
 
