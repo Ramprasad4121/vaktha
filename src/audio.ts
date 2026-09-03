@@ -40,23 +40,67 @@ export function tmpWavPath(): string {
 export function defaultDevice(): string {
   if (process.env.VAKTHA_AUDIO_DEVICE) return process.env.VAKTHA_AUDIO_DEVICE;
   if (process.platform === "darwin") return "0"; // avfoundation audio index; override with VAKTHA_AUDIO_DEVICE
+  if (process.platform === "win32") return "auto"; // resolved to first DirectShow audio device at record time
   return "default";
 }
 
-/** List microphone / avfoundation devices (best effort, never throws). */
+/**
+ * Parse the first DirectShow *audio* device name from
+ * `ffmpeg -f dshow -list_devices true -i dummy` output.
+ * Returns the bare name (without audio= prefix), or null.
+ */
+export function parseDshowFirstAudioDevice(output: string): string | null {
+  const lines = output.split("\n");
+  let inAudio = false;
+  for (const line of lines) {
+    if (/DirectShow audio devices/i.test(line)) { inAudio = true; continue; }
+    if (/DirectShow (video|audio and video) devices/i.test(line)) { inAudio = false; continue; }
+    if (inAudio) {
+      const m = line.match(/"([^"]+)"/);
+      if (m) return m[1];
+    }
+  }
+  return null;
+}
+
+/** Run an ffmpeg -list_devices style command; tolerates the non-zero exit ffmpeg uses for listings. */
+async function ffmpegDeviceList(args: string[], mustMatch: RegExp): Promise<string> {
+  try {
+    const { stderr, stdout } = await run("ffmpeg", args, 15000);
+    const out = `${stdout}\n${stderr}`.trim();
+    return out.slice(0, 2000) || "(no ffmpeg device output)";
+  } catch (e) {
+    const msg = (e as Error).message;
+    const idx = msg.indexOf("failed:");
+    const out = (idx >= 0 ? msg.slice(idx + "failed:".length) : msg).trim();
+    if (mustMatch.test(out)) return out.slice(0, 2000);
+    throw new Error(out.slice(0, 200));
+  }
+}
+
+/** List microphone devices (best effort, never throws). */
 export async function listInputDevices(): Promise<string> {
+  // NOTE: ffmpeg prints device lists to stderr and exits non-zero — that is normal.
   if (process.platform === "darwin") {
-    // NOTE: ffmpeg prints the device list to stderr and exits non-zero — that is normal.
     try {
-      const { stderr, stdout } = await run("ffmpeg", ["-hide_banner", "-f", "avfoundation", "-list_devices", "true", "-i", ""], 15000);
-      const out = `${stdout}\n${stderr}`.trim();
-      return out.slice(0, 2000) || "(no ffmpeg device output)";
+      return await ffmpegDeviceList(
+        ["-hide_banner", "-f", "avfoundation", "-list_devices", "true", "-i", ""],
+        /AVFoundation|audio devices/i
+      );
     } catch (e) {
-      const msg = (e as Error).message;
-      const idx = msg.indexOf("failed:");
-      const out = (idx >= 0 ? msg.slice(idx + "failed:".length) : msg).trim();
-      if (/AVFoundation|audio devices/i.test(out)) return out.slice(0, 2000);
-      return `(ffmpeg device list failed: ${msg.slice(0, 200)})`;
+      return `(ffmpeg device list failed: ${(e as Error).message.slice(0, 200)})`;
+    }
+  }
+  if (process.platform === "win32") {
+    try {
+      const out = await ffmpegDeviceList(
+        ["-hide_banner", "-f", "dshow", "-list_devices", "true", "-i", "dummy"],
+        /DirectShow|audio devices/i
+      );
+      const first = parseDshowFirstAudioDevice(out);
+      return `${out}\n(vaktha will use "${first ?? "?"}" by default; set VAKTHA_AUDIO_DEVICE to another device name to override)`;
+    } catch (e) {
+      return `(ffmpeg device list failed: ${(e as Error).message.slice(0, 200)})`;
     }
   }
   try {
@@ -68,16 +112,34 @@ export async function listInputDevices(): Promise<string> {
   return "(device listing not supported on this platform; set VAKTHA_AUDIO_DEVICE explicitly)";
 }
 
+/** Resolve the effective recording device (Windows auto-detects the first DirectShow mic). */
+async function resolveDevice(device?: string): Promise<string> {
+  const dev = device ?? defaultDevice();
+  if (dev !== "auto") return dev;
+  const out = await listInputDevices();
+  const first = parseDshowFirstAudioDevice(out);
+  if (!first) {
+    throw new Error(
+      "No Windows microphone found via DirectShow. " +
+      "Connect a mic, or set VAKTHA_AUDIO_DEVICE to the exact device name " +
+      '(see vaktha_status output, e.g. VAKTHA_AUDIO_DEVICE="Microphone (Realtek Audio)").'
+    );
+  }
+  return first;
+}
+
 /**
  * Record `durationSec` seconds of mic audio to `outPath` (16kHz mono WAV).
- * macOS: ffmpeg avfoundation `:<device>`. Linux: alsa/pulse via ffmpeg.
+ * macOS: ffmpeg avfoundation `:<device>`. Linux: pulse/alsa via ffmpeg.
+ * Windows: ffmpeg DirectShow `audio="<device name>"` (auto-detects first mic).
  */
-export function recordWav(outPath: string, durationSec: number, device?: string): Promise<{ device: string; seconds: number }> {
-  const dev = device ?? defaultDevice();
+export async function recordWav(outPath: string, durationSec: number, device?: string): Promise<{ device: string; seconds: number }> {
   const secs = Math.min(Math.max(Math.round(durationSec), 1), 180);
 
   let args: string[];
+  let dev: string;
   if (process.platform === "darwin") {
+    dev = device ?? defaultDevice();
     args = [
       "-hide_banner", "-loglevel", "error", "-y",
       "-f", "avfoundation",
@@ -87,6 +149,7 @@ export function recordWav(outPath: string, durationSec: number, device?: string)
       outPath,
     ];
   } else if (process.platform === "linux") {
+    dev = device ?? defaultDevice();
     args = [
       "-hide_banner", "-loglevel", "error", "-y",
       "-f", "pulse",
@@ -95,8 +158,18 @@ export function recordWav(outPath: string, durationSec: number, device?: string)
       "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
       outPath,
     ];
+  } else if (process.platform === "win32") {
+    dev = await resolveDevice(device);
+    args = [
+      "-hide_banner", "-loglevel", "error", "-y",
+      "-f", "dshow",
+      "-i", `audio=${dev}`,
+      "-t", String(secs),
+      "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+      outPath,
+    ];
   } else {
-    return Promise.reject(new Error("vaktha_listen recording is supported on macOS and Linux only in v0.1.0"));
+    return Promise.reject(new Error(`vaktha_listen recording is not supported on ${process.platform}`));
   }
 
   return new Promise((resolve, reject) => {
@@ -106,7 +179,7 @@ export function recordWav(outPath: string, durationSec: number, device?: string)
     child.on("error", (err) => {
       const e = err as NodeJS.ErrnoException;
       if (e.code === "ENOENT") {
-        reject(new Error("ffmpeg not found. Install it: brew install ffmpeg  (or apt install ffmpeg)"));
+        reject(new Error("ffmpeg not found. Install it: brew install ffmpeg (macOS), apt install ffmpeg (Linux), or winget install ffmpeg (Windows)"));
       } else {
         reject(err);
       }

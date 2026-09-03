@@ -27,7 +27,7 @@ server.registerTool(
       language: z.string().optional().describe("BCP-47-ish code, e.g. en (default), hi, kn. honour VAKTHA_LANG if omitted."),
       model: z.string().optional().describe("Backend model override (openai: whisper-1; mlx-whisper: mlx-community/whisper-base-mlx; whisper CLI: base/small/medium)."),
       backend: z.enum(["openai", "mlx-whisper", "whisper", "whisper.cpp"]).optional().describe("Force a transcription backend (default: auto)."),
-      device: z.string().optional().describe("Mic device id (macOS avfoundation audio index, default 0; override via VAKTHA_AUDIO_DEVICE)."),
+      device: z.string().optional().describe("Mic device (macOS: avfoundation index, default 0; Windows: DirectShow name, auto-detected; Linux: pulse source). Override via VAKTHA_AUDIO_DEVICE."),
     },
   },
   async (args) => {
@@ -128,7 +128,7 @@ server.registerTool(
 server.registerTool(
   "vaktha_speak",
   {
-    description: "Speak text aloud with system TTS (macOS say / Linux espeak). Use to read results back when the user is in voice mode.",
+    description: "Speak text aloud with system TTS (macOS say / Linux espeak / Windows System.Speech). Use to read results back when the user is in voice mode.",
     inputSchema: {
       text: z.string().min(1).max(2000).describe("Text to speak (max 2000 chars)."),
       voice: z.string().optional().describe("Voice name (macOS: see say -v '?'; default system voice)."),
