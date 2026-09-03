@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "vaktha": {
+      "type": "local",
+      "command": ["node", "/absolute/path/to/vaktha/dist/index.js"],
+      "enabled": true,
+      "environment": {
+        "OPENAI_API_KEY": "{env:OPENAI_API_KEY}"
+      }
+    }
+  }
+}
