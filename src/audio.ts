@@ -128,12 +128,7 @@ async function resolveDevice(device?: string): Promise<string> {
   return first;
 }
 
-/**
- * Record `durationSec` seconds of mic audio to `outPath` (16kHz mono WAV).
- * macOS: ffmpeg avfoundation `:<device>`. Linux: pulse/alsa via ffmpeg.
- * Windows: ffmpeg DirectShow `audio="<device name>"` (auto-detects first mic).
- */
-export async function recordWav(outPath: string, durationSec: number, device?: string): Promise<{ device: string; seconds: number }> {
+async function buildRecordArgs(outPath: string, durationSec: number, device?: string): Promise<{ args: string[]; dev: string; secs: number }> {
   const secs = Math.min(Math.max(Math.round(durationSec), 1), 180);
 
   let args: string[];
@@ -169,14 +164,31 @@ export async function recordWav(outPath: string, durationSec: number, device?: s
       outPath,
     ];
   } else {
-    return Promise.reject(new Error(`vaktha_listen recording is not supported on ${process.platform}`));
+    throw new Error(`vaktha recording is not supported on ${process.platform}`);
   }
+  return { args, dev, secs };
+}
 
-  return new Promise((resolve, reject) => {
-    const child = spawn("ffmpeg", args);
-    let stderr = "";
+export interface Recording {
+  done: Promise<{ device: string; seconds: number }>;
+  /** Stop early (ffmpeg finalizes the file, done resolves). */
+  stop: () => void;
+}
+
+/**
+ * Start a mic recording with early-stop support (for push-to-talk).
+ * SIGINT lets ffmpeg write a valid WAV trailer before exiting.
+ */
+export async function startRecording(outPath: string, durationSec: number, device?: string): Promise<Recording> {
+  const { args, dev, secs } = await buildRecordArgs(outPath, durationSec, device);
+  const child = spawn("ffmpeg", args);
+  let stderr = "";
+  let settled = false;
+  const done = new Promise<{ device: string; seconds: number }>((resolve, reject) => {
     child.stderr.on("data", (d) => { stderr += d.toString(); });
     child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
       const e = err as NodeJS.ErrnoException;
       if (e.code === "ENOENT") {
         reject(new Error("ffmpeg not found. Install it: brew install ffmpeg (macOS), apt install ffmpeg (Linux), or winget install ffmpeg (Windows)"));
@@ -184,9 +196,25 @@ export async function recordWav(outPath: string, durationSec: number, device?: s
         reject(err);
       }
     });
-    child.on("close", (code) => {
-      if (code === 0) resolve({ device: dev, seconds: secs });
+    child.on("close", (code, signal) => {
+      if (settled) return;
+      settled = true;
+      // exit 0, or SIGINT-stop (255/null): file is valid, resolve with recorded length unknown precisely
+      if (code === 0 || signal === "SIGINT" || code === 255) resolve({ device: dev, seconds: secs });
       else reject(new Error(`ffmpeg recording failed (exit ${code}): ${stderr.slice(0, 500) || "no output — check mic permission & VAKTHA_AUDIO_DEVICE"}`));
     });
   });
+  return {
+    done,
+    stop: () => { if (!settled) { try { child.kill("SIGINT"); } catch { /* ignore */ } } },
+  };
+}
+
+/**
+ * Record `durationSec` seconds of mic audio to `outPath` (16kHz mono WAV).
+ * macOS: ffmpeg avfoundation `:<device>`. Linux: pulse/alsa via ffmpeg.
+ * Windows: ffmpeg DirectShow `audio="<device name>"` (auto-detects first mic).
+ */
+export async function recordWav(outPath: string, durationSec: number, device?: string): Promise<{ device: string; seconds: number }> {
+  return (await startRecording(outPath, durationSec, device)).done;
 }

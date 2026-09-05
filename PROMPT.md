@@ -31,6 +31,8 @@ Steps:
    `"mcp": { "vaktha": { "type": "local", "command": ["node", "<ABSOLUTE>/vaktha/dist/index.js"], "enabled": true } }`
    using the real absolute path. Validate the file still parses.
 6. TUI plugin: in `~/opencode-stt` run `bun install --frozen-lockfile && bun run ci`. All must pass.
+   Copy `<vaktha>/plugins/voice-replies.ts` to `~/.config/opencode/plugins/voice-replies.ts`
+   (spoken agent replies; mute anytime with `VAKTHA_VOICE_REPLIES=0`).
 7. Mic detection — list devices with the OS-appropriate command, then pick a mic index/name. Prefer a built-in mic (always present) over Bluetooth. If unsure, ask me.
    - macOS: `ffmpeg -hide_banner -f avfoundation -list_devices true -i ""` → `capture.input` is `":<N>"`.
    - Windows: `ffmpeg -hide_banner -f dshow -list_devices true -i dummy` → `capture.input` is `"audio=<Exact Device Name>"`. Note: Vaktha's own `vaktha_listen` auto-detects the first mic, but the TUI plugin needs the explicit value.
@@ -49,7 +51,7 @@ Steps:
     - `curl http://127.0.0.1:8765/health` returns ok.
     - `opencode mcp list` shows `vaktha` connected.
     - `bun run ci` in `~/opencode-stt` passes.
-12. Tell me, briefly: what you installed, which mic you picked, and the 3 manual steps: (a) restart OpenCode TUI, (b) press Ctrl+R and speak (Ctrl+R again to stop, Enter to send, Esc to cancel), (c) allow Microphone access for my terminal if macOS asks.
+12. Tell me, briefly: what you installed, which mic you picked, and the 3 manual steps: (a) restart OpenCode TUI, (b) press Ctrl+R once and just talk — it listens, sends, and speaks replies until Ctrl+R/Esc, (c) allow Microphone access for my terminal if macOS asks.
 
 ---
 

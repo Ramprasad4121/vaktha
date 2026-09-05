@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Vaktha CLI: status | listen | transcribe | speak | serve */
+/** Vaktha CLI: status | listen | transcribe | speak | serve | voice */
 import { execFile } from "node:child_process";
 import { rmSync } from "node:fs";
 import { defaultDevice, recordWav, tmpWavPath } from "./audio.js";
@@ -7,6 +7,7 @@ import { detectBackends } from "./transcribe.js";
 import { transcribeFile } from "./transcribe.js";
 import { speak } from "./speak.js";
 import { startServer } from "./serve.js";
+import { voiceLoop, voiceOnce } from "./voice.js";
 
 function arg(name: string, short?: string): string | undefined {
   const i = process.argv.findIndex((a) => a === `--${name}` || (short && a === `-${short}`));
@@ -30,7 +31,9 @@ Usage: vaktha <command> [options]
                                   record mic + print transcript (--copy also copies to clipboard)
   transcribe <file> [opts]         transcribe an audio file
   speak <text...> [--voice V]      read text aloud
-  serve [--port 8765]              localhost OpenAI-compatible STT server (for the TUI plugin)`);
+  serve [--port 8765]              localhost OpenAI-compatible STT server (for the TUI plugin)
+  voice [--url URL] [--port 4173] [--lang en] [--device D] [--voice V] [--text "..."]
+                                  persistent voice agent: SPACE talk/send, interruptable, spoken replies`);
   process.exit(1);
 }
 
@@ -93,6 +96,25 @@ async function main(): Promise<void> {
       const { backend } = await startServer(port);
       console.error(`vaktha serve on http://127.0.0.1:${port} (backend=${backend})`);
       await new Promise(() => {}); // run forever
+      return;
+    }
+    if (cmd === "voice") {
+      const voiceOpts = {
+        url: arg("url"),
+        port: num(arg("port", "p"), NaN) || undefined,
+        lang: arg("lang", "l"),
+        model: arg("model", "m"),
+        backend: arg("backend", "b"),
+        device: arg("device", "d"),
+        voice: arg("voice", "v"),
+      };
+      const text = arg("text", "t");
+      if (text) {
+        const reply = await voiceOnce({ ...voiceOpts, text });
+        console.log(reply || "(empty reply)");
+        return;
+      }
+      await voiceLoop(voiceOpts);
       return;
     }
     usage();

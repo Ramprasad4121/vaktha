@@ -15,6 +15,11 @@ That's it.
 
 ## What you get
 
-- `Ctrl+R` push-to-talk in the TUI (`Ctrl+R` stop, `Enter` send, `Esc` cancel)
+- `Ctrl+R` voice agent in the TUI: press once and just talk — it listens,
+  sends, and speaks replies back, hands-free until you press `Ctrl+R`/Esc.
+  Mute speech: `VAKTHA_VOICE_REPLIES=0`
 - `vaktha` MCP tools for agent-driven dictation (`vaktha_listen`, `vaktha_transcribe`, `vaktha_status`, `vaktha_speak`)
 - `vaktha` CLI: `status`, `listen`, `transcribe`, `speak`, `serve`
+- `vaktha voice` — Codex-style voice agent: SPACE talk/send, interrupts,
+  spoken replies, one persistent session (spawns its own brain tab server).
+  Try: `node dist/cli.js voice` (or `--text "hi"` for a mic-free test)
